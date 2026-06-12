@@ -42,6 +42,26 @@ class DuplicateError(AppError):
     code = "DUPLICATE_RESOURCE"
 
 
+class PaymentMismatchError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "PAYMENT_MISMATCH"
+
+
+class InsufficientStockError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "INSUFFICIENT_STOCK"
+
+
+class SubscriptionLimitError(AppError):
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "SUBSCRIPTION_LIMIT_REACHED"
+
+
+class SubscriptionInactiveError(AppError):
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "SUBSCRIPTION_INACTIVE"
+
+
 def _envelope(code: str, message: str, details: dict | None = None) -> dict:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 

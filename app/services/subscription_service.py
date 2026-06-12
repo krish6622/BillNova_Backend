@@ -7,10 +7,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.subscription import STATUS_TRIAL, SubscriptionPlan, TenantSubscription
+from app.core.errors import SubscriptionInactiveError, SubscriptionLimitError
+from app.models.subscription import (
+    STATUS_ACTIVE,
+    STATUS_TRIAL,
+    SubscriptionPlan,
+    TenantSubscription,
+)
 from app.models.usage import BillUsage
 
 WARN_THRESHOLD = 0.8
+BILLABLE_STATUSES = {STATUS_TRIAL, STATUS_ACTIVE}
 
 
 def _effective_limit(sub: TenantSubscription | None, plan: SubscriptionPlan | None) -> int:
@@ -60,6 +67,47 @@ def get_subscription_summary(db: Session, tenant_id: uuid.UUID) -> dict:
         "warning": warning,
         "period_end": sub.period_end.isoformat() if sub and sub.period_end else None,
     }
+
+
+def _current_subscription(db: Session, tenant_id: uuid.UUID) -> TenantSubscription | None:
+    return db.scalar(
+        select(TenantSubscription)
+        .where(TenantSubscription.tenant_id == tenant_id)
+        .order_by(TenantSubscription.created_at.desc())
+    )
+
+
+def effective_limit(db: Session, tenant_id: uuid.UUID) -> int:
+    sub = _current_subscription(db, tenant_id)
+    plan = db.get(SubscriptionPlan, sub.plan_id) if sub and sub.plan_id else None
+    return _effective_limit(sub, plan)
+
+
+def assert_can_bill(db: Session, tenant_id: uuid.UUID) -> None:
+    """Guard run before saving a bill — blocks inactive/expired or over-limit tenants."""
+    sub = _current_subscription(db, tenant_id)
+    status = sub.status if sub else STATUS_TRIAL
+    if status not in BILLABLE_STATUSES:
+        raise SubscriptionInactiveError(f"Subscription is {status}. Billing is disabled.")
+    limit = effective_limit(db, tenant_id)
+    if limit and current_usage_count(db, tenant_id) >= limit:
+        raise SubscriptionLimitError("Monthly bill limit reached. Upgrade your plan to continue.")
+
+
+def increment_usage(db: Session, tenant_id: uuid.UUID, *, today: date | None = None) -> None:
+    """Increment the current month's bill counter (get-or-create the row)."""
+    today = today or date.today()
+    row = db.scalar(
+        select(BillUsage).where(
+            BillUsage.tenant_id == tenant_id,
+            BillUsage.year == today.year,
+            BillUsage.month == today.month,
+        )
+    )
+    if row is None:
+        row = BillUsage(tenant_id=tenant_id, year=today.year, month=today.month, bills_count=0)
+        db.add(row)
+    row.bills_count += 1
 
 
 def list_plans(db: Session) -> list[SubscriptionPlan]:
