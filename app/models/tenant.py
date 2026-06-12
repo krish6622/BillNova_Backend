@@ -26,5 +26,10 @@ class Tenant(Base):
     place_of_supply: Mapped[str] = mapped_column(String(10), default="intra")
     gst_mode_default: Mapped[str] = mapped_column(String(10), default="inclusive")
 
+    # Invoice header/footer settings.
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    invoice_prefix: Mapped[str] = mapped_column(String(10), default="INV")
+    invoice_footer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

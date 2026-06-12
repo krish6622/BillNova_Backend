@@ -121,6 +121,8 @@ class InvoiceBusiness(BaseModel):
     gst_number: str | None
     mobile: str
     email: str
+    address: str | None
+    invoice_footer: str | None
 
 
 class InvoiceOut(BaseModel):

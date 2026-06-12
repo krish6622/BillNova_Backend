@@ -103,8 +103,8 @@ def _totals_dict(comp: gst_service.BillComputation) -> dict:
     }
 
 
-def _next_invoice_number(db: Session, tenant_id: uuid.UUID, *, today: date) -> str:
-    prefix = f"INV-{today.year}-"
+def _next_invoice_number(db: Session, tenant_id: uuid.UUID, *, today: date, invoice_prefix: str) -> str:
+    prefix = f"{invoice_prefix}-{today.year}-"
     count = db.scalar(
         select(func.count(Sale.id)).where(
             Sale.tenant_id == tenant_id, Sale.invoice_number.like(f"{prefix}%")
@@ -121,7 +121,7 @@ def create_sale(
     # 1) Subscription guard (inactive / over-limit) — raises before any writes.
     subscription_service.assert_can_bill(db, tenant_id)
 
-    gst_mode, place, _ = _resolve_modes(db, tenant_id, payload)
+    gst_mode, place, tenant = _resolve_modes(db, tenant_id, payload)
     products = _load_products(db, tenant_id, payload.items)
 
     # 2) Stock check (default policy: block on insufficient stock).
@@ -151,7 +151,9 @@ def create_sale(
     # 4) Atomic write: sale + items + payments + stock movements + usage.
     sale = Sale(
         tenant_id=tenant_id,
-        invoice_number=_next_invoice_number(db, tenant_id, today=today),
+        invoice_number=_next_invoice_number(
+            db, tenant_id, today=today, invoice_prefix=tenant.invoice_prefix
+        ),
         created_by=user_id,
         gst_mode=gst_mode,
         place_of_supply=place,
