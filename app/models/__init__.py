@@ -1,2 +1,15 @@
-"""ORM models package. Models are added per milestone (M1 onward) and imported here
-so Alembic autogenerate can discover them via Base.metadata."""
+"""ORM models package. Importing here registers all tables on Base.metadata
+so Alembic autogenerate and tests' create_all discover them."""
+
+from app.models.subscription import SubscriptionPlan, TenantSubscription
+from app.models.tenant import Tenant
+from app.models.usage import BillUsage
+from app.models.user import User
+
+__all__ = [
+    "Tenant",
+    "User",
+    "SubscriptionPlan",
+    "TenantSubscription",
+    "BillUsage",
+]

@@ -9,7 +9,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
-    "pydantic>=2.7",
+    "pydantic[email]>=2.7",
     "pydantic-settings>=2.3",
     "python-jose[cryptography]>=3.3",
     "passlib[bcrypt]>=1.7",
@@ -36,14 +36,15 @@ pythonpath = ["."]
 omit = ["app/main.py", "alembic/*", "tests/*"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py311"
+extend-exclude = ["alembic"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.black]
-line-length = 100
+line-length = 120
 target-version = ["py311"]
 
 [build-system]

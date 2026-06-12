@@ -17,6 +17,31 @@ class AppError(Exception):
         super().__init__(message)
 
 
+class AuthError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "INVALID_CREDENTIALS"
+
+
+class TokenError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "TOKEN_INVALID"
+
+
+class ForbiddenError(AppError):
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "FORBIDDEN_ROLE"
+
+
+class NotFoundError(AppError):
+    status_code = status.HTTP_404_NOT_FOUND
+    code = "NOT_FOUND"
+
+
+class DuplicateError(AppError):
+    status_code = status.HTTP_409_CONFLICT
+    code = "DUPLICATE_RESOURCE"
+
+
 def _envelope(code: str, message: str, details: dict | None = None) -> dict:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 

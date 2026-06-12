@@ -19,5 +19,5 @@ COPY . .
 
 EXPOSE 8000
 
-# entrypoint runs migrations then starts the server (see docker-compose command override for dev)
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# entrypoint runs migrations + seeds reference data, then starts the server
+CMD ["sh", "-c", "alembic upgrade head && python -m seeds.seed_plans && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
