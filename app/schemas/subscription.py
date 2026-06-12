@@ -1,6 +1,8 @@
 """Subscription / usage schemas."""
 
 import uuid
+from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -27,3 +29,11 @@ class SubscriptionOut(BaseModel):
     usage: UsageOut
     warning: str | None  # None | "APPROACHING_LIMIT" | "LIMIT_REACHED"
     period_end: str | None
+
+
+class ActivateRequest(BaseModel):
+    tenant_id: uuid.UUID
+    plan_id: uuid.UUID | None = None
+    status: Literal["Trial", "Active", "Expired", "Suspended"]
+    period_start: date | None = None
+    period_end: date | None = None

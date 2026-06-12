@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     trial_days: int = 14
     trial_bill_quota: int = 50
 
+    # Manual subscription activation is gated by this key (platform ops only).
+    # Empty (default) disables the activate endpoint entirely.
+    admin_api_key: str = ""
+
     # Locale
     default_timezone: str = "Asia/Kolkata"
 

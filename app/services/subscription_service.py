@@ -110,6 +110,40 @@ def increment_usage(db: Session, tenant_id: uuid.UUID, *, today: date | None = N
     row.bills_count += 1
 
 
+def activate(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    plan_id: uuid.UUID | None,
+    status: str,
+    period_start: date | None,
+    period_end: date | None,
+) -> TenantSubscription:
+    """Manual activation/upgrade (platform ops). Writes a new subscription row
+    (history preserved) and mirrors the status onto the tenant."""
+    from app.core.errors import NotFoundError
+    from app.models.tenant import Tenant
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise NotFoundError("Tenant not found.")
+    if plan_id is not None and db.get(SubscriptionPlan, plan_id) is None:
+        raise NotFoundError("Plan not found.")
+
+    sub = TenantSubscription(
+        tenant_id=tenant_id,
+        plan_id=plan_id,
+        status=status,
+        period_start=period_start or date.today(),
+        period_end=period_end,
+    )
+    db.add(sub)
+    tenant.subscription_status = status
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
 def list_plans(db: Session) -> list[SubscriptionPlan]:
     return list(
         db.scalars(select(SubscriptionPlan).where(SubscriptionPlan.is_active.is_(True)).order_by(
