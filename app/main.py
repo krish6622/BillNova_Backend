@@ -9,6 +9,7 @@ from app.api import (
     inventory,
     products,
     purchases,
+    reports,
     sales,
     subscription,
     suppliers,
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(suppliers.router, prefix="/api")
     app.include_router(purchases.router, prefix="/api")
     app.include_router(inventory.router, prefix="/api")
+    app.include_router(reports.router, prefix="/api")
     app.include_router(subscription.router, prefix="/api")
 
     return app
