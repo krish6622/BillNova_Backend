@@ -2,24 +2,15 @@
 
 from datetime import date
 
-from tests.conftest import auth_headers, register
-
-PRODUCT = {
-    "product_code": "TS-001",
-    "name": "Cotton Saree",
-    "unit": "PCS",
-    "purchase_price": 600,
-    "selling_price": 105,
-    "gst_percentage": 5,
-    "hsn_code": "5407",
-    "current_stock": 50,
-    "reorder_level": 5,
-}
+from tests.conftest import auth_headers, register, seed_product
 
 
 def _setup_with_sale(client):
+    # purchase_price 60 + amount margin 45 -> selling 105; stock 50 then sell 2 -> 48.
     headers = auth_headers(register(client).json()["access_token"])
-    pid = client.post("/api/products", headers=headers, json=PRODUCT).json()["id"]
+    seed_product(client, headers, code="TS-001", name="Cotton Saree",
+                 purchase_price=60, margin_type="amount", margin_value=45, gst=5, hsn="5407", qty=50)
+    pid = client.get("/api/products", headers=headers).json()["items"][0]["id"]
     client.post(
         "/api/sales",
         headers=headers,
@@ -79,7 +70,7 @@ def test_stock_report(client):
     body = resp.json()
     item = body["rows"][0]
     assert item["current_stock"] == 48.0  # 50 - 2 sold
-    assert body["total_value"] == 48.0 * 600
+    assert body["total_value"] == 48.0 * 60  # purchase_price 60
 
 
 def test_export_excel(client):

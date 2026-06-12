@@ -1,31 +1,22 @@
 """Billing / POS API tests."""
 
+import uuid
 from datetime import date
 
 from sqlalchemy.orm import sessionmaker
 
 from app.models.usage import BillUsage
-from tests.conftest import auth_headers, register
-
-# tenant defaults: gst_mode=inclusive, place=intra
-PRODUCT = {
-    "product_code": "TS-001",
-    "name": "Cotton Saree",
-    "unit": "PCS",
-    "purchase_price": 600,
-    "selling_price": 105,
-    "gst_percentage": 5,
-    "hsn_code": "5407",
-    "current_stock": 50,
-    "reorder_level": 5,
-}
+from tests.conftest import auth_headers, register, seed_product
 
 
+# tenant defaults: gst_mode=inclusive, place=intra. Product seeded via purchase:
+# purchase_price 60 + amount margin 45 -> selling_price 105, stock 50.
 def _setup(client):
     token = register(client).json()
     headers = auth_headers(token["access_token"])
-    pid = client.post("/api/products", headers=headers, json=PRODUCT).json()["id"]
-    return token, headers, pid
+    p = seed_product(client, headers, code="TS-001", name="Cotton Saree",
+                     purchase_price=60, margin_type="amount", margin_value=45, qty=50)
+    return token, headers, p["id"]
 
 
 def test_preview_computes_inclusive_gst(client):
@@ -117,7 +108,7 @@ def test_subscription_limit_blocks_billing(client, engine):
     Session = sessionmaker(bind=engine, future=True)
     s = Session()
     today = date.today()
-    s.add(BillUsage(tenant_id=tenant_id, year=today.year, month=today.month, bills_count=50))
+    s.add(BillUsage(tenant_id=uuid.UUID(tenant_id), year=today.year, month=today.month, bills_count=50))
     s.commit()
     s.close()
 

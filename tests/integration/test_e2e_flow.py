@@ -17,24 +17,16 @@ def test_full_business_flow(client):
     # 2) Configure invoice prefix.
     client.put("/api/settings", headers=headers, json={"invoice_prefix": "BN"})
 
-    # 3) Create a product (starts with zero stock).
-    pid = client.post(
-        "/api/products",
-        headers=headers,
-        json={
-            "product_code": "TS-001", "name": "Cotton Saree", "unit": "PCS",
-            "purchase_price": 600, "selling_price": 105, "gst_percentage": 5,
-            "hsn_code": "5407", "current_stock": 0, "reorder_level": 5,
-        },
-    ).json()["id"]
-
-    # 4) Purchase 100 units -> stock 100.
+    # 3 + 4) Purchase 100 units of a NEW product (created inline) -> stock 100, selling 105.
     client.post(
         "/api/purchases",
         headers=headers,
         json={"supplier_name": "Mills Co", "purchase_date": "2026-06-10",
-              "items": [{"product_id": pid, "quantity": 100, "purchase_price": 600, "gst_percentage": 5}]},
+              "items": [{"product_code": "TS-001", "product_name": "Cotton Saree", "hsn_code": "5407",
+                         "gst_percentage": 5, "purchase_price": 60, "margin_type": "amount",
+                         "margin_value": 45, "quantity": 100, "unit": "NOS"}]},
     )
+    pid = client.get("/api/products", headers=headers).json()["items"][0]["id"]
     assert client.get(f"/api/products/{pid}", headers=headers).json()["current_stock"] == 100.0
 
     # 5) Sell 2 units (inclusive GST) -> stock 98, usage 1, invoice BN-YYYY-0001.

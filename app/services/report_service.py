@@ -116,6 +116,26 @@ def hsn_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> di
     return {"from": start.isoformat(), "to": end.isoformat(), "rows": out_rows}
 
 
+def top_products(db: Session, tenant_id: uuid.UUID, start: date, end: date, *, limit: int = 5) -> list[dict]:
+    rows = db.execute(
+        select(
+            SaleItem.product_name,
+            _S(func.sum(SaleItem.quantity), 0),
+            _S(func.sum(SaleItem.line_total), 0),
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(
+            SaleItem.tenant_id == tenant_id,
+            func.date(Sale.created_at) >= start,
+            func.date(Sale.created_at) <= end,
+        )
+        .group_by(SaleItem.product_name)
+        .order_by(func.sum(SaleItem.quantity).desc())
+        .limit(limit)
+    ).all()
+    return [{"name": r[0], "quantity": float(r[1]), "amount": float(r[2])} for r in rows]
+
+
 def stock_report(db: Session, tenant_id: uuid.UUID) -> dict:
     products = db.scalars(
         select(Product)

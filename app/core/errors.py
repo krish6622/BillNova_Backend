@@ -1,6 +1,7 @@
 """Uniform error envelope and exception handlers (see docs §5.9)."""
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -78,7 +79,10 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _validation_error(_: Request, exc: RequestValidationError):
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=_envelope("VALIDATION_ERROR", "Request validation failed.", {"errors": exc.errors()}),
+            content=_envelope(
+                "VALIDATION_ERROR", "Request validation failed.",
+                {"errors": jsonable_encoder(exc.errors())},
+            ),
         )
 
     @app.exception_handler(Exception)

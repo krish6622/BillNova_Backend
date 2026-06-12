@@ -12,7 +12,10 @@ dependencies = [
     "pydantic[email]>=2.7",
     "pydantic-settings>=2.3",
     "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
+    "passlib[bcrypt]>=1.7.4",
+    # passlib 1.7.4's bcrypt backend is incompatible with bcrypt >= 4.1 (its
+    # self-test raises "password cannot be longer than 72 bytes"). Pin to 4.0.x.
+    "bcrypt>=4.0,<4.1",
     "python-multipart>=0.0.9",
     "openpyxl>=3.1",
     "reportlab>=4.1",
@@ -46,6 +49,12 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.black]
 line-length = 120
 target-version = ["py311"]
+
+# Explicit package discovery — the repo has multiple top-level dirs (app, seeds,
+# alembic, tests); install only the importable packages so setuptools' flat-layout
+# auto-discovery doesn't error.
+[tool.setuptools.packages.find]
+include = ["app*", "seeds*"]
 
 [build-system]
 requires = ["setuptools>=68"]

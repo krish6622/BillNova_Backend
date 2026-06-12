@@ -79,3 +79,40 @@ def register(client, **overrides):
 
 def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def seed_product(
+    client,
+    headers,
+    *,
+    code: str | None = None,
+    name: str = "Cotton Saree",
+    purchase_price: float = 600,
+    margin_type: str = "amount",
+    margin_value: float = 399,
+    gst: float = 5,
+    hsn: str = "5407",
+    qty: float = 50,
+    unit: str = "NOS",
+    reorder_level: float | None = None,
+) -> dict:
+    """Create a product the CR-1 way — via a purchase (inline new product) — and
+    return the created product dict. Optionally set a reorder level via edit."""
+    item = {
+        "product_name": name, "hsn_code": hsn, "gst_percentage": gst,
+        "purchase_price": purchase_price, "margin_type": margin_type,
+        "margin_value": margin_value, "quantity": qty, "unit": unit,
+    }
+    if code:
+        item["product_code"] = code
+    resp = client.post(
+        "/api/purchases", headers=headers,
+        json={"supplier_name": "Seed Supplier", "purchase_date": "2026-06-10", "items": [item]},
+    )
+    assert resp.status_code == 201, resp.text
+    items = client.get("/api/products", headers=headers, params={"search": code or name}).json()["items"]
+    product = next(p for p in items if (code is None or p["product_code"] == code) and p["name"] == name)
+    if reorder_level is not None:
+        client.put(f"/api/products/{product['id']}", headers=headers, json={"reorder_level": reorder_level})
+        product = client.get(f"/api/products/{product['id']}", headers=headers).json()
+    return product

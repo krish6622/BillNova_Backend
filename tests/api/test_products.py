@@ -1,106 +1,77 @@
-"""Product CRUD / search / pagination / RBAC / isolation tests."""
+"""Product catalogue tests (CR-1): created via purchase, read-only selling price,
+no direct create/delete, tenant isolation."""
 
-from tests.conftest import auth_headers, register
-
-PRODUCT = {
-    "product_code": "TS-001",
-    "name": "Cotton Saree",
-    "category": "Sarees",
-    "unit": "PCS",
-    "purchase_price": 600,
-    "selling_price": 999,
-    "gst_percentage": 5,
-    "hsn_code": "5407",
-    "current_stock": 50,
-    "reorder_level": 5,
-}
+from tests.conftest import auth_headers, register, seed_product
 
 
 def _owner(client):
-    return register(client).json()["access_token"]
+    return auth_headers(register(client).json()["access_token"])
 
 
-def _make_cashier(client, owner_token):
-    client.post(
-        "/api/users", headers=auth_headers(owner_token),
-        json={"name": "Asha", "email": "asha@shop.in", "password": "cashierpass1"},
+def _make_cashier(client, owner):
+    client.post("/api/users", headers=owner,
+                json={"name": "Asha", "email": "asha@shop.in", "password": "cashierpass1"})
+    return auth_headers(
+        client.post("/api/auth/login", json={"email": "asha@shop.in", "password": "cashierpass1"}).json()["access_token"]
     )
-    return client.post(
-        "/api/auth/login", json={"email": "asha@shop.in", "password": "cashierpass1"}
-    ).json()["access_token"]
 
 
-def test_owner_creates_and_reads_product(client):
-    token = _owner(client)
-    resp = client.post("/api/products", headers=auth_headers(token), json=PRODUCT)
-    assert resp.status_code == 201
-    pid = resp.json()["id"]
-    assert resp.json()["selling_price"] == 999
-
-    got = client.get(f"/api/products/{pid}", headers=auth_headers(token))
+def test_product_created_via_purchase_appears_in_catalogue(client):
+    h = _owner(client)
+    p = seed_product(client, h, code="TS-001", name="Cotton Saree")
+    got = client.get(f"/api/products/{p['id']}", headers=h)
     assert got.status_code == 200
     assert got.json()["product_code"] == "TS-001"
+    assert got.json()["unit"] == "NOS"
 
 
-def test_duplicate_code_conflicts(client):
-    token = _owner(client)
-    client.post("/api/products", headers=auth_headers(token), json=PRODUCT)
-    dup = client.post("/api/products", headers=auth_headers(token), json=PRODUCT)
-    assert dup.status_code == 409
+def test_direct_create_and_delete_are_gone(client):
+    h = _owner(client)
+    assert client.post("/api/products", headers=h, json={"name": "X"}).status_code in (404, 405)
+    p = seed_product(client, h, code="TS-002")
+    assert client.delete(f"/api/products/{p['id']}", headers=h).status_code in (404, 405)
 
 
-def test_update_and_delete(client):
-    token = _owner(client)
-    pid = client.post("/api/products", headers=auth_headers(token), json=PRODUCT).json()["id"]
-
-    upd = client.put(f"/api/products/{pid}", headers=auth_headers(token), json={"selling_price": 1099})
+def test_edit_recomputes_selling_price(client):
+    h = _owner(client)
+    p = seed_product(client, h, code="TS-003", purchase_price=100, margin_type="amount", margin_value=20)
+    assert p["selling_price"] == 120.0
+    upd = client.put(f"/api/products/{p['id']}", headers=h,
+                     json={"margin_type": "percentage", "margin_value": 25})
     assert upd.status_code == 200
-    assert upd.json()["selling_price"] == 1099
+    assert upd.json()["selling_price"] == 125.0  # 100 * 1.25
 
-    dele = client.delete(f"/api/products/{pid}", headers=auth_headers(token))
-    assert dele.status_code == 204
-    assert client.get(f"/api/products/{pid}", headers=auth_headers(token)).status_code == 404
+
+def test_deactivate_via_edit(client):
+    h = _owner(client)
+    p = seed_product(client, h, code="TS-004")
+    upd = client.put(f"/api/products/{p['id']}", headers=h, json={"is_active": False})
+    assert upd.status_code == 200 and upd.json()["is_active"] is False
 
 
 def test_search_and_pagination(client):
-    token = _owner(client)
+    h = _owner(client)
     for i in range(5):
-        p = {**PRODUCT, "product_code": f"P-{i}", "name": f"Item {i}"}
-        client.post("/api/products", headers=auth_headers(token), json=p)
-    client.post(
-        "/api/products", headers=auth_headers(token),
-        json={**PRODUCT, "product_code": "ZZ", "name": "Zebra Towel"},
-    )
-
-    page1 = client.get("/api/products?page=1&limit=2", headers=auth_headers(token)).json()
-    assert page1["total"] == 6
-    assert len(page1["items"]) == 2
-
-    found = client.get("/api/products?search=zebra", headers=auth_headers(token)).json()
-    assert found["total"] == 1
-    assert found["items"][0]["name"] == "Zebra Towel"
+        seed_product(client, h, code=f"P-{i}", name=f"Item {i}", qty=1)
+    seed_product(client, h, code="ZZ", name="Zebra Towel", qty=1)
+    page1 = client.get("/api/products?page=1&limit=2", headers=h).json()
+    assert page1["total"] == 6 and len(page1["items"]) == 2
+    found = client.get("/api/products?search=zebra", headers=h).json()
+    assert found["total"] == 1 and found["items"][0]["name"] == "Zebra Towel"
 
 
-def test_cashier_can_read_but_not_write(client):
+def test_cashier_can_read_but_not_edit(client):
     owner = _owner(client)
-    pid = client.post("/api/products", headers=auth_headers(owner), json=PRODUCT).json()["id"]
+    p = seed_product(client, owner, code="TS-005")
     cashier = _make_cashier(client, owner)
-
-    assert client.get("/api/products", headers=auth_headers(cashier)).status_code == 200
-    create = client.post(
-        "/api/products", headers=auth_headers(cashier),
-        json={**PRODUCT, "product_code": "NEW"},
-    )
-    assert create.status_code == 403
-    assert client.delete(f"/api/products/{pid}", headers=auth_headers(cashier)).status_code == 403
+    assert client.get("/api/products", headers=cashier).status_code == 200
+    assert client.put(f"/api/products/{p['id']}", headers=cashier, json={"is_active": False}).status_code == 403
 
 
 def test_products_are_tenant_isolated(client):
     a = _owner(client)
-    a_pid = client.post("/api/products", headers=auth_headers(a), json=PRODUCT).json()["id"]
-
-    b = register(client, business_name="B Store", email="b@b.in").json()["access_token"]
-    # B sees no products and cannot fetch A's product id
-    b_list = client.get("/api/products", headers=auth_headers(b)).json()
+    pa = seed_product(client, a, code="A-1", name="A Product")
+    b = auth_headers(register(client, business_name="B Store", email="b@b.in").json()["access_token"])
+    b_list = client.get("/api/products", headers=b).json()
     assert b_list["total"] == 0
-    assert client.get(f"/api/products/{a_pid}", headers=auth_headers(b)).status_code == 404
+    assert client.get(f"/api/products/{pa['id']}", headers=b).status_code == 404

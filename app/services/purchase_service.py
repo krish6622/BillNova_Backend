@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError, NotFoundError
 from app.models.inventory import REF_PURCHASE, TXN_IN, TXN_OUT, InventoryTransaction
 from app.models.product import Product
-from app.models.purchase import STATUS_ACTIVE, STATUS_CANCELLED, Purchase, PurchaseItem
+from app.models.purchase import STATUS_CANCELLED, Purchase, PurchaseItem
 from app.schemas.purchase import PurchaseCreate
+from app.services import product_service
 
 TWO = Decimal("0.01")
 
@@ -19,19 +20,38 @@ def _q(value: Decimal) -> Decimal:
     return value.quantize(TWO, rounding=ROUND_HALF_UP)
 
 
-def _load_products(db: Session, tenant_id: uuid.UUID, items) -> dict[uuid.UUID, Product]:
-    ids = [i.product_id for i in items]
-    rows = db.scalars(select(Product).where(Product.tenant_id == tenant_id, Product.id.in_(ids))).all()
-    by_id = {p.id: p for p in rows}
-    for pid in ids:
-        if pid not in by_id:
-            raise NotFoundError("Product not found.", {"product_id": str(pid)})
-    return by_id
+def _resolve_product(db: Session, tenant_id: uuid.UUID, item) -> Product:
+    """Return the product for a purchase line — fetch existing, or create inline.
+    Inline creation auto-generates/validates the code (duplicate rejects the purchase)."""
+    if item.product_id is not None:
+        product = db.get(Product, item.product_id)
+        if product is None or product.tenant_id != tenant_id:
+            raise NotFoundError("Product not found.", {"product_id": str(item.product_id)})
+        product_service.apply_purchase_pricing(
+            product,
+            purchase_price=item.purchase_price,
+            margin_type=item.margin_type,
+            margin_value=item.margin_value,
+            gst_percentage=item.gst_percentage,
+            hsn_code=item.hsn_code,
+            unit=item.unit,
+        )
+        return product
+    return product_service.create_from_purchase(
+        db,
+        tenant_id,
+        product_code=item.product_code,
+        name=item.product_name,
+        hsn_code=item.hsn_code,
+        gst_percentage=item.gst_percentage,
+        unit=item.unit,
+        purchase_price=item.purchase_price,
+        margin_type=item.margin_type,
+        margin_value=item.margin_value,
+    )
 
 
 def create_purchase(db: Session, tenant_id: uuid.UUID, payload: PurchaseCreate) -> Purchase:
-    products = _load_products(db, tenant_id, payload.items)
-
     purchase = Purchase(
         tenant_id=tenant_id,
         supplier_id=payload.supplier_id,
@@ -44,7 +64,7 @@ def create_purchase(db: Session, tenant_id: uuid.UUID, payload: PurchaseCreate) 
     total_amount = Decimal("0")
     total_gst = Decimal("0")
     for item in payload.items:
-        p = products[item.product_id]
+        p = _resolve_product(db, tenant_id, item)
         qty = Decimal(str(item.quantity))
         price = Decimal(str(item.purchase_price))
         rate = Decimal(str(item.gst_percentage))

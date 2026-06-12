@@ -130,14 +130,16 @@ def activate(
     if plan_id is not None and db.get(SubscriptionPlan, plan_id) is None:
         raise NotFoundError("Plan not found.")
 
-    sub = TenantSubscription(
-        tenant_id=tenant_id,
-        plan_id=plan_id,
-        status=status,
-        period_start=period_start or date.today(),
-        period_end=period_end,
-    )
-    db.add(sub)
+    # Update the tenant's current subscription in place (deterministic — avoids
+    # two rows sharing the same now() timestamp). Create one only if none exists.
+    sub = _current_subscription(db, tenant_id)
+    if sub is None:
+        sub = TenantSubscription(tenant_id=tenant_id)
+        db.add(sub)
+    sub.plan_id = plan_id
+    sub.status = status
+    sub.period_start = period_start or date.today()
+    sub.period_end = period_end
     tenant.subscription_status = status
     db.commit()
     db.refresh(sub)

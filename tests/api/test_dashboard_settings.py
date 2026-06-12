@@ -2,25 +2,16 @@
 
 from datetime import date
 
-from tests.conftest import auth_headers, register
-
-PRODUCT = {
-    "product_code": "TS-001",
-    "name": "Cotton Saree",
-    "unit": "PCS",
-    "purchase_price": 600,
-    "selling_price": 105,
-    "gst_percentage": 5,
-    "hsn_code": "5407",
-    "current_stock": 3,
-    "reorder_level": 5,  # below reorder -> low stock
-}
+from tests.conftest import auth_headers, register, seed_product
 
 
 def _setup(client):
+    # purchase_price 60 + amount margin 45 -> selling 105; stock 3, reorder 5 (low).
     headers = auth_headers(register(client).json()["access_token"])
-    pid = client.post("/api/products", headers=headers, json=PRODUCT).json()["id"]
-    return headers, pid
+    p = seed_product(client, headers, code="TS-001", name="Cotton Saree",
+                     purchase_price=60, margin_type="amount", margin_value=45, gst=5, hsn="5407",
+                     qty=3, reorder_level=5)
+    return headers, p["id"]
 
 
 def test_dashboard_kpis(client):
@@ -36,6 +27,9 @@ def test_dashboard_kpis(client):
     assert body["bills_this_month"] == 1
     assert body["subscription"]["used"] == 1
     assert body["low_stock_count"] == 1  # stock 1 (3-2) <= reorder 5
+    assert 28 <= len(body["trend"]) <= 31  # one point per day of the month
+    assert body["top_products"][0]["name"] == "Cotton Saree"
+    assert body["top_products"][0]["quantity"] == 2.0
 
 
 def test_settings_get_and_update(client):

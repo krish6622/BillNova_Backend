@@ -1,5 +1,6 @@
 """Subscription / usage read + manual-activation tests."""
 
+import uuid
 from datetime import date
 
 from sqlalchemy.orm import sessionmaker
@@ -82,7 +83,7 @@ def test_monthly_usage_resets_each_month(client, engine):
     py, pm = _prev_month(date.today())
     Session = sessionmaker(bind=engine, future=True)
     s = Session()
-    s.add(BillUsage(tenant_id=tenant_id, year=py, month=pm, bills_count=49))
+    s.add(BillUsage(tenant_id=uuid.UUID(tenant_id), year=py, month=pm, bills_count=49))
     s.commit()
     s.close()
 
