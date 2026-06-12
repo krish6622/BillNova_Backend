@@ -1,31 +1,33 @@
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-billnova}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billnova}
-      POSTGRES_DB: ${POSTGRES_DB:-billnova}
-    volumes:
-      - billnova_db:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billnova}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   backend:
     build: .
+    # DATABASE_URL (and other config) come from ./.env. In dev this points at
+    # the managed Neon Postgres instance, so no local db service is required.
+    #
+    # To use a LOCAL Postgres instead, uncomment the `db` service below and set
+    # DATABASE_URL in .env to:
+    #   postgresql+psycopg2://billnova:billnova@db:5432/billnova
     env_file:
       - ./.env
-    environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-billnova}:${POSTGRES_PASSWORD:-billnova}@db:5432/${POSTGRES_DB:-billnova}
-    depends_on:
-      db:
-        condition: service_healthy
     ports:
       - "8000:8000"
 
-volumes:
-  billnova_db:
+  # --- Optional local Postgres (disabled; using Neon via .env) ---
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: billnova
+  #     POSTGRES_PASSWORD: billnova
+  #     POSTGRES_DB: billnova
+  #   volumes:
+  #     - billnova_db:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #     healthcheck:
+  #       test: ["CMD-SHELL", "pg_isready -U billnova"]
+  #       interval: 5s
+  #       timeout: 5s
+  #       retries: 10
+
+# volumes:
+#   billnova_db:
