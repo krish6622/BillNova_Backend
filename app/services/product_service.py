@@ -2,10 +2,13 @@
 
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import DuplicateError, NotFoundError
 from app.models.product import Product
+from app.models.purchase import PurchaseItem
+from app.models.sale import SaleItem
 from app.repositories.product_repo import ProductRepository
 from app.schemas.product import ProductCreate, ProductUpdate
 
@@ -46,9 +49,22 @@ def update_product(db, tenant_id, product_id: uuid.UUID, payload: ProductUpdate)
     return product
 
 
-def delete_product(db, tenant_id, product_id: uuid.UUID) -> None:
-    """Hard delete in M2 (nothing references products yet). M4 switches to a
-    reference-aware soft delete once sales/purchases can reference a product."""
+def _is_referenced(db: Session, product_id: uuid.UUID) -> bool:
+    in_sales = db.scalar(select(SaleItem.id).where(SaleItem.product_id == product_id).limit(1))
+    in_purchases = db.scalar(
+        select(PurchaseItem.id).where(PurchaseItem.product_id == product_id).limit(1)
+    )
+    return in_sales is not None or in_purchases is not None
+
+
+def delete_product(db, tenant_id, product_id: uuid.UUID) -> bool:
+    """Soft-delete (deactivate) a product referenced by sales/purchases to preserve
+    history; hard-delete a never-referenced product. Returns True if soft-deleted."""
     product = get_product(db, tenant_id, product_id)
+    if _is_referenced(db, product_id):
+        product.is_active = False
+        db.commit()
+        return True
     db.delete(product)
     db.commit()
+    return False
