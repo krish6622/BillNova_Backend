@@ -52,8 +52,34 @@ pytest                                               # tests with >=80% coverage
 
 ## Configuration
 
-Env vars only (never committed). See `.env.example`: `DATABASE_URL`, `JWT_SECRET`, token TTLs, trial defaults, `CORS_ORIGINS`.
+Env vars only (never committed). See `.env.example`:
+`DATABASE_URL`, `JWT_SECRET`, token TTLs, `TRIAL_DAYS`/`TRIAL_BILL_QUOTA`, `CORS_ORIGINS`,
+and `ADMIN_API_KEY` (enables the ops-only manual subscription activation endpoint; leave empty to disable).
 
-## Milestones
+## API surface (`/api`)
 
-M0 scaffolding ✓ · M1 tenancy/auth · M2 products · M3 GST + POS · M4 purchases/inventory · M5 subscriptions · M6 reports · M7 dashboard/settings · M8 hardening. See [`docs/09-Development-Plan.md`](docs/09-Development-Plan.md).
+| Area | Endpoints |
+|------|-----------|
+| Auth | `POST /auth/register|login|refresh|logout`, `GET /auth/me` |
+| Users (Owner) | `GET/POST /users`, `PATCH /users/{id}`, `POST /users/{id}/reset-password` |
+| Products | `GET /products`, `GET /products/{id}` (any auth); `POST/PUT/DELETE` (Owner) |
+| Billing/POS | `POST /sales/preview`, `POST /sales`, `GET /sales`, `GET /sales/{id}`, `GET /sales/{id}/invoice` |
+| Suppliers/Purchases (Owner) | `GET/POST/PUT /suppliers`; `GET/POST /purchases`, `POST /purchases/{id}/cancel` |
+| Inventory (Owner) | `GET /inventory/stock`, `GET /inventory/ledger/{product_id}`, `POST /inventory/adjust`, `GET /inventory/low-stock` |
+| Reports (Owner) | `GET /reports/sales/daily|monthly`, `GET /reports/gst/summary|hsn`, `GET /reports/inventory/stock`, `GET /reports/{report}/export?format=pdf|excel` |
+| Subscription | `GET /subscription`, `GET /subscription/plans`; `POST /subscription/activate` (admin key) |
+| Settings (Owner) | `GET/PUT /settings` |
+| Dashboard | `GET /dashboard` |
+
+Full contract: [`docs/07-API-Specifications.md`](docs/07-API-Specifications.md). Interactive docs at `/docs` when running.
+
+## Security
+
+See [`docs/SECURITY.md`](docs/SECURITY.md): JWT auth + bcrypt, server-side RBAC, row-level tenant isolation
+(cross-tenant → 404), secrets via env only, atomic billing writes.
+
+## Milestones (Phase 1 — complete)
+
+M0 scaffolding ✓ · M1 tenancy/auth ✓ · M2 products ✓ · M3 GST + POS ✓ · M4 purchases/inventory ✓ ·
+M5 subscriptions ✓ · M6 reports ✓ · M7 dashboard/settings ✓ · M8 hardening ✓.
+See [`docs/09-Development-Plan.md`](docs/09-Development-Plan.md).
