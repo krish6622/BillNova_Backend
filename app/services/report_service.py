@@ -5,13 +5,17 @@ import calendar
 import uuid
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models.product import Product
-from app.models.sale import Sale, SaleItem
+from app.models.sale import BILLING_WITH_GST, BILLING_WITHOUT_GST, STATUS_VOID, Sale, SaleItem
 
 _S = func.coalesce
+# CR-5: voided invoices are retained but excluded from every sales aggregation.
+_NOT_VOID = Sale.status != STATUS_VOID
+# GST billing workflow: only WITH_GST invoices belong in GST/GSTR/HSN aggregations.
+_IS_GST = Sale.billing_type == BILLING_WITH_GST
 
 
 def _sales_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> dict:
@@ -24,6 +28,7 @@ def _sales_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) ->
             _S(func.sum(Sale.total_discount), 0),
         ).where(
             Sale.tenant_id == tenant_id,
+            _NOT_VOID,
             func.date(Sale.created_at) >= start,
             func.date(Sale.created_at) <= end,
         )
@@ -50,6 +55,7 @@ def monthly_sales(db: Session, tenant_id: uuid.UUID, year: int, month: int) -> d
         select(day_expr, func.count(Sale.id), _S(func.sum(Sale.grand_total), 0))
         .where(
             Sale.tenant_id == tenant_id,
+            _NOT_VOID,
             day_expr >= start,
             day_expr <= end,
         )
@@ -72,6 +78,8 @@ def gst_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> di
         .join(Sale, Sale.id == SaleItem.sale_id)
         .where(
             SaleItem.tenant_id == tenant_id,
+            _NOT_VOID,
+            _IS_GST,
             func.date(Sale.created_at) >= start,
             func.date(Sale.created_at) <= end,
         )
@@ -103,6 +111,8 @@ def hsn_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> di
         .join(Sale, Sale.id == SaleItem.sale_id)
         .where(
             SaleItem.tenant_id == tenant_id,
+            _NOT_VOID,
+            _IS_GST,
             func.date(Sale.created_at) >= start,
             func.date(Sale.created_at) <= end,
         )
@@ -126,6 +136,7 @@ def top_products(db: Session, tenant_id: uuid.UUID, start: date, end: date, *, l
         .join(Sale, Sale.id == SaleItem.sale_id)
         .where(
             SaleItem.tenant_id == tenant_id,
+            _NOT_VOID,
             func.date(Sale.created_at) >= start,
             func.date(Sale.created_at) <= end,
         )
@@ -134,6 +145,105 @@ def top_products(db: Session, tenant_id: uuid.UUID, start: date, end: date, *, l
         .limit(limit)
     ).all()
     return [{"name": r[0], "quantity": float(r[1]), "amount": float(r[2])} for r in rows]
+
+
+def _invoice_register_rows(db: Session, tenant_id: uuid.UUID, start: date, end: date, *extra_conds):
+    """Per-invoice rows (not voided) in the window, newest first — shared by the registers."""
+    return db.scalars(
+        select(Sale)
+        .where(
+            Sale.tenant_id == tenant_id,
+            _NOT_VOID,
+            *extra_conds,
+            func.date(Sale.created_at) >= start,
+            func.date(Sale.created_at) <= end,
+        )
+        .order_by(Sale.created_at.desc())
+    ).all()
+
+
+def gst_sales_register(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> dict:
+    """Invoice-level register of WITH_GST sales (taxable / GST / total per invoice)."""
+    sales = _invoice_register_rows(db, tenant_id, start, end, _IS_GST)
+    rows = [
+        {
+            "invoice_number": s.invoice_number,
+            "customer_name": s.customer_name or "Walk-in",
+            "gstin": s.customer_gstin or "",
+            "taxable": float(s.total_taxable),
+            "gst": float(s.total_gst),
+            "total": float(s.grand_total),
+        }
+        for s in sales
+    ]
+    totals = {
+        "taxable": sum(r["taxable"] for r in rows),
+        "gst": sum(r["gst"] for r in rows),
+        "total": sum(r["total"] for r in rows),
+    }
+    return {"from": start.isoformat(), "to": end.isoformat(), "rows": rows, "totals": totals}
+
+
+def non_gst_sales_register(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> dict:
+    """Invoice-level register of WITHOUT_GST (non-GST) sales."""
+    sales = _invoice_register_rows(db, tenant_id, start, end, Sale.billing_type == BILLING_WITHOUT_GST)
+    rows = [
+        {
+            "invoice_number": s.invoice_number,
+            "customer_name": s.customer_name or "Walk-in",
+            "total": float(s.grand_total),
+        }
+        for s in sales
+    ]
+    return {
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "rows": rows,
+        "totals": {"total": sum(r["total"] for r in rows)},
+    }
+
+
+def gst_customer_register(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> dict:
+    """Every invoice raised for a B2B GST customer (is_gst_customer = TRUE)."""
+    sales = _invoice_register_rows(db, tenant_id, start, end, Sale.is_gst_customer.is_(True))
+    rows = [
+        {
+            "invoice_number": s.invoice_number,
+            "customer_name": s.customer_name or "",
+            "gstin": s.customer_gstin or "",
+            "total": float(s.grand_total),
+        }
+        for s in sales
+    ]
+    return {
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "rows": rows,
+        "totals": {"total": sum(r["total"] for r in rows), "customers": len(rows)},
+    }
+
+
+def gst_billing_summary(db: Session, tenant_id: uuid.UUID, start: date, end: date) -> dict:
+    """Combined GST vs non-GST headline figures for the auditor package."""
+    row = db.execute(
+        select(
+            _S(func.sum(case((_IS_GST, Sale.grand_total), else_=0)), 0),
+            _S(func.sum(case((Sale.billing_type == BILLING_WITHOUT_GST, Sale.grand_total), else_=0)), 0),
+            _S(func.sum(case((Sale.is_gst_customer.is_(True), 1), else_=0)), 0),
+        ).where(
+            Sale.tenant_id == tenant_id,
+            _NOT_VOID,
+            func.date(Sale.created_at) >= start,
+            func.date(Sale.created_at) <= end,
+        )
+    ).one()
+    return {
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "total_gst_sales": float(row[0]),
+        "total_non_gst_sales": float(row[1]),
+        "total_gst_customers": int(row[2]),
+    }
 
 
 def stock_report(db: Session, tenant_id: uuid.UUID) -> dict:

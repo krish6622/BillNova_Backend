@@ -11,11 +11,11 @@ from app.core.errors import InsufficientStockError, NotFoundError, PaymentMismat
 from app.models.inventory import REF_SALE, TXN_OUT, InventoryTransaction
 from app.models.payment import Payment
 from app.models.product import Product
-from app.models.sale import Sale, SaleItem
+from app.models.sale import BILLING_WITH_GST, Sale, SaleItem
 from app.models.tenant import Tenant
 from app.schemas.sale import SaleCreate, SalePreviewRequest
 from app.services import gst_service, subscription_service
-from app.services.gst_service import LineInput, compute_bill
+from app.services.gst_service import MODE_EXCLUSIVE, LineInput, compute_bill
 
 TWO = Decimal("0.01")
 
@@ -26,7 +26,9 @@ def _q(value: Decimal) -> Decimal:
 
 def _resolve_modes(db: Session, tenant_id: uuid.UUID, payload: SalePreviewRequest) -> tuple[str, str, Tenant]:
     tenant = db.get(Tenant, tenant_id)
-    gst_mode = payload.gst_mode or tenant.gst_mode_default
+    # CR-7: no tenant gst_mode_default anymore — pricing is exclusive (CR-4 standard);
+    # an explicit per-request gst_mode still overrides (used by the pure-engine tests).
+    gst_mode = payload.gst_mode or MODE_EXCLUSIVE
     place = payload.place_of_supply or tenant.place_of_supply
     return gst_mode, place, tenant
 
@@ -44,6 +46,9 @@ def _load_products(db: Session, tenant_id: uuid.UUID, items) -> dict[uuid.UUID, 
 
 
 def _line_inputs(items, products) -> list[LineInput]:
+    # CR-2.1 INVARIANT (locked): customer/output GST is ALWAYS derived from the
+    # selling price. purchase_price must NEVER feed a sale line. Do not change
+    # `unit_price` to anything but selling_price. (test_billing guards this.)
     return [
         LineInput(
             unit_price=products[item.product_id].selling_price,
@@ -58,11 +63,13 @@ def _line_inputs(items, products) -> list[LineInput]:
 def preview(db: Session, tenant_id: uuid.UUID, payload: SalePreviewRequest) -> dict:
     gst_mode, place, _ = _resolve_modes(db, tenant_id, payload)
     products = _load_products(db, tenant_id, payload.items)
+    charge_gst = payload.billing_type == BILLING_WITH_GST
     comp = compute_bill(
         _line_inputs(payload.items, products),
         gst_mode=gst_mode,
         place_of_supply=place,
         bill_discount=payload.bill_discount,
+        charge_gst=charge_gst,
     )
     items_out = []
     for item, cline in zip(payload.items, comp.lines, strict=True):
@@ -74,7 +81,8 @@ def preview(db: Session, tenant_id: uuid.UUID, payload: SalePreviewRequest) -> d
                 "hsn_code": p.hsn_code,
                 "quantity": item.quantity,
                 "unit_price": float(p.selling_price),
-                "gst_percentage": float(p.gst_percentage),
+                # WITHOUT_GST: no GST applies, so the displayed/stored rate is 0.
+                "gst_percentage": float(p.gst_percentage) if charge_gst else 0.0,
                 "discount": float(cline.discount),
                 "taxable_value": float(cline.taxable_value),
                 "cgst": float(cline.cgst),
@@ -86,6 +94,7 @@ def preview(db: Session, tenant_id: uuid.UUID, payload: SalePreviewRequest) -> d
     return {
         "gst_mode": gst_mode,
         "place_of_supply": place,
+        "billing_type": payload.billing_type,
         "items": items_out,
         "totals": _totals_dict(comp),
     }
@@ -133,11 +142,13 @@ def create_sale(
                 {"product_id": str(p.id), "available": float(p.current_stock), "requested": item.quantity},
             )
 
+    charge_gst = payload.billing_type == BILLING_WITH_GST
     comp = compute_bill(
         _line_inputs(payload.items, products),
         gst_mode=gst_mode,
         place_of_supply=place,
         bill_discount=payload.bill_discount,
+        charge_gst=charge_gst,
     )
 
     # 3) Payments must sum to the grand total.
@@ -155,6 +166,13 @@ def create_sale(
             db, tenant_id, today=today, invoice_prefix=tenant.invoice_prefix
         ),
         created_by=user_id,
+        customer_name=(payload.customer_name or None),
+        is_gst_customer=payload.is_gst_customer,
+        customer_mobile=(payload.customer_mobile or None),
+        customer_gstin=payload.customer_gstin,
+        billing_type=payload.billing_type,
+        # WITHOUT_GST can never show a GST breakdown (there is none).
+        show_gst_on_invoice=payload.show_gst_on_invoice and charge_gst,
         gst_mode=gst_mode,
         place_of_supply=place,
         total_taxable=comp.total_taxable,
@@ -178,10 +196,12 @@ def create_sale(
                 product_id=p.id,
                 product_name=p.name,
                 hsn_code=p.hsn_code,
+                unit=p.unit,
                 quantity=item.quantity,
                 unit_price=p.selling_price,
                 discount=cline.discount,
-                gst_percentage=p.gst_percentage,
+                # WITHOUT_GST: snapshot 0% so the line carries no tax in reports/print.
+                gst_percentage=p.gst_percentage if charge_gst else 0,
                 taxable_value=cline.taxable_value,
                 cgst=cline.cgst,
                 sgst=cline.sgst,

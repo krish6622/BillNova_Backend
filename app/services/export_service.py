@@ -3,10 +3,25 @@
 Both consume the same (title, columns, rows) so exports match the on-screen data.
 """
 
+import zipfile
 from io import BytesIO
 
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PDF_MIME = "application/pdf"
+ZIP_MIME = "application/zip"
+
+
+def to_zip(files: dict[str, bytes]) -> bytes:
+    """Bundle `{archive_path: content}` into a single .zip (folders via "/" in keys).
+
+    Used for the auditor export package, which groups GST and Non-GST registers into
+    separate folders plus a combined summary at the root.
+    """
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, content in files.items():
+            zf.writestr(path, content)
+    return buf.getvalue()
 
 
 def to_excel(title: str, columns: list[str], rows: list[list]) -> bytes:

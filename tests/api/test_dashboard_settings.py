@@ -6,10 +6,10 @@ from tests.conftest import auth_headers, register, seed_product
 
 
 def _setup(client):
-    # purchase_price 60 + amount margin 45 -> selling 105; stock 3, reorder 5 (low).
+    # purchase_price 60 + profit 45 -> selling 105; stock 3, reorder 5 (low).
     headers = auth_headers(register(client).json()["access_token"])
     p = seed_product(client, headers, code="TS-001", name="Cotton Saree",
-                     purchase_price=60, margin_type="amount", margin_value=45, gst=5, hsn="5407",
+                     purchase_price=60, markup_amount=45, gst=5, hsn="5407",
                      qty=3, reorder_level=5)
     return headers, p["id"]
 
@@ -18,7 +18,8 @@ def test_dashboard_kpis(client):
     headers, pid = _setup(client)
     client.post(
         "/api/sales", headers=headers,
-        json={"items": [{"product_id": pid, "quantity": 2}], "payments": [{"mode": "Cash", "amount": 210}]},
+        json={"gst_mode": "inclusive", "items": [{"product_id": pid, "quantity": 2}],
+              "payments": [{"mode": "Cash", "amount": 210}]},
     )
     resp = client.get("/api/dashboard", headers=headers)
     assert resp.status_code == 200
@@ -37,17 +38,21 @@ def test_settings_get_and_update(client):
     got = client.get("/api/settings", headers=headers)
     assert got.status_code == 200
     assert got.json()["invoice_prefix"] == "INV"
-    assert got.json()["gst_mode_default"] == "inclusive"
+    # CR-5: POS print format defaults to thermal 80mm.
+    assert got.json()["invoice_type"] == "thermal_80"
+    # CR-7: gst_mode_default and show_gst_on_invoice are no longer tenant settings.
+    assert "gst_mode_default" not in got.json()
+    assert "show_gst_on_invoice" not in got.json()
 
     upd = client.put(
         "/api/settings",
         headers=headers,
-        json={"gst_mode_default": "exclusive", "invoice_prefix": "BILL", "address": "Main Rd"},
+        json={"invoice_prefix": "BILL", "address": "Main Rd", "invoice_type": "a4"},
     )
     assert upd.status_code == 200
-    assert upd.json()["gst_mode_default"] == "exclusive"
     assert upd.json()["invoice_prefix"] == "BILL"
     assert upd.json()["address"] == "Main Rd"
+    assert upd.json()["invoice_type"] == "a4"
 
 
 def test_invoice_prefix_applies_to_new_sales(client):
@@ -55,7 +60,8 @@ def test_invoice_prefix_applies_to_new_sales(client):
     client.put("/api/settings", headers=headers, json={"invoice_prefix": "BILL"})
     sale = client.post(
         "/api/sales", headers=headers,
-        json={"items": [{"product_id": pid, "quantity": 1}], "payments": [{"mode": "Cash", "amount": 105}]},
+        json={"gst_mode": "inclusive", "items": [{"product_id": pid, "quantity": 1}],
+              "payments": [{"mode": "Cash", "amount": 105}]},
     ).json()
     assert sale["invoice_number"] == f"BILL-{date.today().year}-0001"
 

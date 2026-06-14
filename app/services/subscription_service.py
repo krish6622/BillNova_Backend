@@ -110,6 +110,21 @@ def increment_usage(db: Session, tenant_id: uuid.UUID, *, today: date | None = N
     row.bills_count += 1
 
 
+def decrement_usage(db: Session, tenant_id: uuid.UUID, *, today: date | None = None) -> None:
+    """Reverse one bill from a month's counter (CR-5 void). Decrements the row for the
+    given month (the voided sale's own month), never below zero."""
+    today = today or date.today()
+    row = db.scalar(
+        select(BillUsage).where(
+            BillUsage.tenant_id == tenant_id,
+            BillUsage.year == today.year,
+            BillUsage.month == today.month,
+        )
+    )
+    if row is not None and row.bills_count > 0:
+        row.bills_count -= 1
+
+
 def activate(
     db: Session,
     *,

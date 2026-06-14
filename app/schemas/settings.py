@@ -14,9 +14,14 @@ class SettingsOut(BaseModel):
     gst_number: str | None
     address: str | None
     place_of_supply: str
-    gst_mode_default: str
     invoice_prefix: str
     invoice_footer: str | None
+    # CR-5: POS print format.
+    invoice_type: str
+    # CR-6: footer branding toggle.
+    show_branding: bool
+    # CR-7: gst_mode_default and show_gst_on_invoice are GONE — pricing is always
+    # exclusive and GST display is chosen per bill at checkout.
 
 
 class SettingsUpdate(BaseModel):
@@ -26,6 +31,9 @@ class SettingsUpdate(BaseModel):
     gst_number: str | None = Field(default=None, max_length=20)
     address: str | None = Field(default=None, max_length=500)
     place_of_supply: Literal["intra", "inter"] | None = None
-    gst_mode_default: Literal["inclusive", "exclusive"] | None = None
     invoice_prefix: str | None = Field(default=None, min_length=1, max_length=10)
     invoice_footer: str | None = Field(default=None, max_length=500)
+    # CR-5: POS print format.
+    invoice_type: Literal["thermal_80", "thermal_58", "a4"] | None = None
+    # CR-6: footer branding toggle.
+    show_branding: bool | None = None

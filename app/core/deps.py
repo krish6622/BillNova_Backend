@@ -1,18 +1,25 @@
-"""FastAPI dependencies: DB session, current user, tenant context, RBAC."""
+"""FastAPI dependencies: DB session, current user, tenant context, RBAC.
+
+RBAC is enforced by two dependency factories — ``require_role`` (role membership) and
+``require_permission`` (the permission matrix in ``app.core.permissions``). Both funnel
+denials through ``_deny`` so every blocked request is recorded in the access audit log.
+"""
 
 import uuid
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import ForbiddenError, TokenError
+from app.core.permissions import has_permission
 from app.core.security import TOKEN_TYPE_ACCESS, decode_token
 from app.models.user import ROLE_OWNER, User
+from app.services import audit_service
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -47,18 +54,37 @@ def get_current_tenant_id(user: CurrentUser) -> uuid.UUID:
 TenantId = Annotated[uuid.UUID, Depends(get_current_tenant_id)]
 
 
-def require_role(*roles: str) -> Callable[[User], User]:
+def _deny(db: Session, request: Request, user: User, action: str) -> None:
+    """Record the denial and raise 403. Single chokepoint for every RBAC guard."""
+    audit_service.log_access_denied(db, user=user, request=request, action=action)
+    raise ForbiddenError("You do not have permission to perform this action.")
+
+
+def require_role(*roles: str) -> Callable[..., User]:
     """Dependency factory enforcing that the current user has one of `roles`."""
 
-    def _checker(user: CurrentUser) -> User:
+    def _checker(request: Request, db: DbSession, user: CurrentUser) -> User:
         if user.role not in roles:
-            raise ForbiddenError("You do not have permission to perform this action.")
+            _deny(db, request, user, action="role:" + "|".join(roles))
         return user
 
     return _checker
 
 
-# Convenience: Owner-only guard.
+def require_permission(*permissions: str) -> Callable[..., User]:
+    """Dependency factory enforcing that the current user's role grants ALL of
+    `permissions` per the central matrix. Denials are audited."""
+
+    def _checker(request: Request, db: DbSession, user: CurrentUser) -> User:
+        missing = [p for p in permissions if not has_permission(user.role, p)]
+        if missing:
+            _deny(db, request, user, action=",".join(missing))
+        return user
+
+    return _checker
+
+
+# Convenience: Owner-only guard (Owner == Admin).
 require_owner = require_role(ROLE_OWNER)
 
 

@@ -62,7 +62,14 @@ def compute_bill(
     gst_mode: str = MODE_INCLUSIVE,
     place_of_supply: str = SUPPLY_INTRA,
     bill_discount=0,
+    charge_gst: bool = True,
 ) -> BillComputation:
+    """Compute a bill's lines and totals.
+
+    ``charge_gst=False`` models a WITHOUT_GST (non-GST) sale: every line's GST rate is
+    treated as 0 regardless of ``gst_mode``, so taxable == line_total and total_gst == 0.
+    The customer pays the plain selling price with no tax added.
+    """
     bill_discount = _d(bill_discount)
     grosses = [_d(line.unit_price) * _d(line.quantity) for line in lines]
     total_gross = sum(grosses, ZERO)
@@ -76,7 +83,7 @@ def compute_bill(
         if base < 0:
             base = ZERO
 
-        rate = _d(line.gst_percentage)
+        rate = _d(line.gst_percentage) if charge_gst else ZERO
         if gst_mode == MODE_INCLUSIVE:
             taxable = base / (1 + rate / 100)
             gst_amount = base - taxable

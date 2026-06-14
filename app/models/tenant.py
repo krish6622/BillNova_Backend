@@ -22,14 +22,24 @@ class Tenant(Base):
     # Mirrors the active subscription's status for cheap reads.
     subscription_status: Mapped[str] = mapped_column(String(20), default="Trial")
 
-    # GST defaults used by the POS (overridable per sale).
+    # Place of supply still drives the CGST+SGST vs IGST split. (CR-7 removed the
+    # gst_mode_default setting — pricing is always exclusive, the CR-4 standard.)
     place_of_supply: Mapped[str] = mapped_column(String(10), default="intra")
-    gst_mode_default: Mapped[str] = mapped_column(String(10), default="inclusive")
 
     # Invoice header/footer settings.
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     invoice_prefix: Mapped[str] = mapped_column(String(10), default="INV")
+    # CR-5: print format for the POS — thermal_80 (default) | thermal_58 | a4.
+    invoice_type: Mapped[str] = mapped_column(
+        String(12), nullable=False, server_default="thermal_80", default="thermal_80"
+    )
+    # CR-6: show the "Powered by BillNova" line on receipts (merchants may disable).
+    show_branding: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", default=True
+    )
     invoice_footer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # CR-7: show_gst_on_invoice moved OFF the tenant — it is now chosen per bill and
+    # stored on each sale (sales.show_gst_on_invoice).
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

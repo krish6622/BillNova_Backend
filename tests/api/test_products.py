@@ -34,12 +34,12 @@ def test_direct_create_and_delete_are_gone(client):
 
 def test_edit_recomputes_selling_price(client):
     h = _owner(client)
-    p = seed_product(client, h, code="TS-003", purchase_price=100, margin_type="amount", margin_value=20)
+    p = seed_product(client, h, code="TS-003", purchase_price=100, markup_amount=20)
     assert p["selling_price"] == 120.0
     upd = client.put(f"/api/products/{p['id']}", headers=h,
-                     json={"margin_type": "percentage", "margin_value": 25})
+                     json={"markup_amount": 25})
     assert upd.status_code == 200
-    assert upd.json()["selling_price"] == 125.0  # 100 * 1.25
+    assert upd.json()["selling_price"] == 125.0  # 100 + 25
 
 
 def test_deactivate_via_edit(client):

@@ -30,8 +30,7 @@ def _resolve_product(db: Session, tenant_id: uuid.UUID, item) -> Product:
         product_service.apply_purchase_pricing(
             product,
             purchase_price=item.purchase_price,
-            margin_type=item.margin_type,
-            margin_value=item.margin_value,
+            markup_amount=item.markup_amount,
             gst_percentage=item.gst_percentage,
             hsn_code=item.hsn_code,
             unit=item.unit,
@@ -46,8 +45,7 @@ def _resolve_product(db: Session, tenant_id: uuid.UUID, item) -> Product:
         gst_percentage=item.gst_percentage,
         unit=item.unit,
         purchase_price=item.purchase_price,
-        margin_type=item.margin_type,
-        margin_value=item.margin_value,
+        markup_amount=item.markup_amount,
     )
 
 
@@ -56,6 +54,8 @@ def create_purchase(db: Session, tenant_id: uuid.UUID, payload: PurchaseCreate) 
         tenant_id=tenant_id,
         supplier_id=payload.supplier_id,
         supplier_name=payload.supplier_name,
+        invoice_number=payload.invoice_number,
+        notes=payload.notes,
         purchase_date=payload.purchase_date,
     )
     db.add(purchase)

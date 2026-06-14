@@ -1,6 +1,7 @@
 """ORM models package. Importing here registers all tables on Base.metadata
 so Alembic autogenerate and tests' create_all discover them."""
 
+from app.models.audit import AccessAuditLog
 from app.models.inventory import InventoryTransaction
 from app.models.payment import Payment
 from app.models.product import Product
@@ -26,4 +27,5 @@ __all__ = [
     "Supplier",
     "Purchase",
     "PurchaseItem",
+    "AccessAuditLog",
 ]

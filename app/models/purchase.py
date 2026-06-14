@@ -23,6 +23,9 @@ class Purchase(Base):
         Uuid, ForeignKey("suppliers.id"), nullable=True
     )
     supplier_name: Mapped[str] = mapped_column(String(255))
+    # CR-7: supplier's invoice/bill number and free-text notes for the purchase header.
+    invoice_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     purchase_date: Mapped[date] = mapped_column(Date)
     total_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     total_gst: Mapped[float] = mapped_column(Numeric(12, 2), default=0)

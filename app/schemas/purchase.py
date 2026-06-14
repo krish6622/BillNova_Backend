@@ -3,11 +3,8 @@ or a new product created inline (product_name + pricing)."""
 
 import uuid
 from datetime import date, datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-MarginType = Literal["percentage", "amount"]
 
 
 class PurchaseItemInput(BaseModel):
@@ -19,10 +16,9 @@ class PurchaseItemInput(BaseModel):
     hsn_code: str | None = Field(default=None, max_length=20)
     gst_percentage: float = Field(default=0, ge=0, le=100)
     unit: str = Field(default="NOS", max_length=20)
-    # Pricing (drives the derived selling price):
+    # Pricing (drives the derived selling price): selling = purchase_price + markup_amount.
     purchase_price: float = Field(gt=0)
-    margin_type: MarginType = "percentage"
-    margin_value: float = Field(default=0, ge=0)
+    markup_amount: float = Field(default=0, ge=0)
     quantity: float = Field(gt=0)
 
     @model_validator(mode="after")
@@ -35,6 +31,9 @@ class PurchaseItemInput(BaseModel):
 class PurchaseCreate(BaseModel):
     supplier_name: str = Field(min_length=1, max_length=255)
     supplier_id: uuid.UUID | None = None
+    # CR-7: supplier invoice header.
+    invoice_number: str | None = Field(default=None, max_length=50)
+    notes: str | None = Field(default=None, max_length=500)
     purchase_date: date
     items: list[PurchaseItemInput] = Field(min_length=1)
 
@@ -54,6 +53,8 @@ class PurchaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     supplier_name: str
+    invoice_number: str | None
+    notes: str | None
     purchase_date: date
     total_amount: float
     total_gst: float
@@ -66,6 +67,7 @@ class PurchaseListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     supplier_name: str
+    invoice_number: str | None
     purchase_date: date
     total_amount: float
     status: str

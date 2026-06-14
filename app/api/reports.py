@@ -56,6 +56,41 @@ def inventory_stock(db: DbSession, tenant_id: TenantId):
     return report_service.stock_report(db, tenant_id)
 
 
+# ---- GST billing workflow registers ---------------------------------------
+
+@router.get("/gst/sales-register")
+def gst_sales_register(
+    db: DbSession,
+    tenant_id: TenantId,
+    from_date: date = Query(default_factory=lambda: _month_start(date.today())),
+    to_date: date = Query(default_factory=date.today),
+):
+    """Invoice-level register of WITH_GST sales only."""
+    return report_service.gst_sales_register(db, tenant_id, from_date, to_date)
+
+
+@router.get("/non-gst/sales-register")
+def non_gst_sales_register(
+    db: DbSession,
+    tenant_id: TenantId,
+    from_date: date = Query(default_factory=lambda: _month_start(date.today())),
+    to_date: date = Query(default_factory=date.today),
+):
+    """Invoice-level register of WITHOUT_GST (non-GST) sales only."""
+    return report_service.non_gst_sales_register(db, tenant_id, from_date, to_date)
+
+
+@router.get("/gst/customer-register")
+def gst_customer_register(
+    db: DbSession,
+    tenant_id: TenantId,
+    from_date: date = Query(default_factory=lambda: _month_start(date.today())),
+    to_date: date = Query(default_factory=date.today),
+):
+    """Every invoice raised for a B2B GST customer (is_gst_customer = TRUE)."""
+    return report_service.gst_customer_register(db, tenant_id, from_date, to_date)
+
+
 def _build_table(db, tenant_id, report: str, *, day, year, month, from_date, to_date):
     """Return (filename, title, columns, rows) for a report — shared by exporters."""
     if report == "sales-daily":
@@ -91,7 +126,76 @@ def _build_table(db, tenant_id, report: str, *, day, year, month, from_date, to_
         rows.append(["", "TOTAL", "", "", "", rep["total_value"]])
         return ("current-stock", "Current Stock Report",
                 ["Code", "Name", "Unit", "Stock", "Cost", "Value"], rows)
+    if report == "gst-sales-register":
+        rep = report_service.gst_sales_register(db, tenant_id, from_date, to_date)
+        rows = [[r["invoice_number"], r["customer_name"], r["gstin"], r["taxable"], r["gst"], r["total"]]
+                for r in rep["rows"]]
+        rows.append(["TOTAL", "", "", rep["totals"]["taxable"], rep["totals"]["gst"], rep["totals"]["total"]])
+        return (f"gst-sales-register-{from_date}-{to_date}",
+                f"GST Sales Register — {from_date} to {to_date}",
+                ["Invoice No", "Customer Name", "GSTIN", "Taxable Value", "GST Amount", "Total"], rows)
+    if report == "non-gst-sales-register":
+        rep = report_service.non_gst_sales_register(db, tenant_id, from_date, to_date)
+        rows = [[r["invoice_number"], r["customer_name"], r["total"]] for r in rep["rows"]]
+        rows.append(["TOTAL", "", rep["totals"]["total"]])
+        return (f"non-gst-sales-register-{from_date}-{to_date}",
+                f"Non-GST Sales Register — {from_date} to {to_date}",
+                ["Invoice No", "Customer Name", "Total Amount"], rows)
+    if report == "gst-customer-register":
+        rep = report_service.gst_customer_register(db, tenant_id, from_date, to_date)
+        rows = [[r["invoice_number"], r["customer_name"], r["gstin"], r["total"]] for r in rep["rows"]]
+        rows.append(["TOTAL", "", "", rep["totals"]["total"]])
+        return (f"gst-customer-register-{from_date}-{to_date}",
+                f"GST Customer Register — {from_date} to {to_date}",
+                ["Invoice No", "Customer Name", "GSTIN", "Total"], rows)
     raise AppError(f"Unknown report '{report}'.")
+
+
+@router.get("/auditor/export")
+def auditor_export(
+    db: DbSession,
+    tenant_id: TenantId,
+    from_date: date = Query(default_factory=lambda: _month_start(date.today())),
+    to_date: date = Query(default_factory=date.today),
+):
+    """Auditor export package (.zip): GST and Non-GST registers in separate folders
+    plus a combined GST-vs-non-GST summary at the root.
+
+    Declared BEFORE the parameterized `/{report}/export` so the static path wins."""
+
+    def sheet(report: str) -> bytes:
+        _fn, title, columns, rows = _build_table(
+            db, tenant_id, report, day=to_date, year=to_date.year, month=to_date.month,
+            from_date=from_date, to_date=to_date,
+        )
+        return export_service.to_excel(title, columns, rows)
+
+    summary = report_service.gst_billing_summary(db, tenant_id, from_date, to_date)
+    combined = export_service.to_excel(
+        "Combined Summary",
+        ["Metric", "Value"],
+        [
+            ["Total GST Sales", summary["total_gst_sales"]],
+            ["Total Non-GST Sales", summary["total_non_gst_sales"]],
+            ["Total GST Customers", summary["total_gst_customers"]],
+        ],
+    )
+
+    files = {
+        "GST/GST-Sales-Register.xlsx": sheet("gst-sales-register"),
+        "GST/HSN-Summary.xlsx": sheet("hsn-summary"),
+        "GST/GST-Customer-Register.xlsx": sheet("gst-customer-register"),
+        "GST/GSTR-Data.xlsx": sheet("gst-summary"),
+        "Non-GST/Non-GST-Sales-Register.xlsx": sheet("non-gst-sales-register"),
+        "Combined-Summary.xlsx": combined,
+    }
+    content = export_service.to_zip(files)
+    filename = f"auditor-export-{from_date}-{to_date}.zip"
+    return Response(
+        content=content,
+        media_type=export_service.ZIP_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{report}/export")

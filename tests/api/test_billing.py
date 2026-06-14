@@ -9,13 +9,15 @@ from app.models.usage import BillUsage
 from tests.conftest import auth_headers, register, seed_product
 
 
-# tenant defaults: gst_mode=inclusive, place=intra. Product seeded via purchase:
-# purchase_price 60 + amount margin 45 -> selling_price 105, stock 50.
+# tenant default is now gst_mode=exclusive (CR-4); these legacy tests pin the request to
+# gst_mode="inclusive" explicitly so they keep validating inclusive math + billing plumbing
+# regardless of the default. Exclusive-default behaviour is covered by test_cr4_pos_pricing.
+# Product seeded via purchase: purchase_price 60 + markup 45 -> selling_price 105, stock 50.
 def _setup(client):
     token = register(client).json()
     headers = auth_headers(token["access_token"])
     p = seed_product(client, headers, code="TS-001", name="Cotton Saree",
-                     purchase_price=60, margin_type="amount", margin_value=45, qty=50)
+                     purchase_price=60, markup_amount=45, qty=50)
     return token, headers, p["id"]
 
 
@@ -24,7 +26,7 @@ def test_preview_computes_inclusive_gst(client):
     resp = client.post(
         "/api/sales/preview",
         headers=headers,
-        json={"items": [{"product_id": pid, "quantity": 2}]},
+        json={"gst_mode": "inclusive", "items": [{"product_id": pid, "quantity": 2}]},
     )
     assert resp.status_code == 200
     totals = resp.json()["totals"]
@@ -39,6 +41,7 @@ def test_save_sale_updates_stock_and_usage(client):
         "/api/sales",
         headers=headers,
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 2}],
             "payments": [{"mode": "Cash", "amount": 210}],
         },
@@ -64,6 +67,7 @@ def test_split_payment_ok(client):
         "/api/sales",
         headers=headers,
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 2}],
             "payments": [{"mode": "Cash", "amount": 100}, {"mode": "UPI", "amount": 110}],
         },
@@ -78,6 +82,7 @@ def test_payment_mismatch_rejected(client):
         "/api/sales",
         headers=headers,
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 2}],
             "payments": [{"mode": "Cash", "amount": 200}],
         },
@@ -116,6 +121,7 @@ def test_subscription_limit_blocks_billing(client, engine):
         "/api/sales",
         headers=headers,
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 1}],
             "payments": [{"mode": "Cash", "amount": 105}],
         },
@@ -130,6 +136,7 @@ def test_get_and_list_and_invoice(client):
         "/api/sales",
         headers=headers,
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 1}],
             "payments": [{"mode": "Cash", "amount": 105}],
         },
@@ -160,6 +167,7 @@ def test_cashier_can_create_bill(client):
         "/api/sales",
         headers=auth_headers(cashier),
         json={
+            "gst_mode": "inclusive",
             "items": [{"product_id": pid, "quantity": 1}],
             "payments": [{"mode": "Cash", "amount": 105}],
         },

@@ -1,5 +1,5 @@
-"""CR-1 API tests: purchase-creates-product, auto code, margin pricing, duplicate
-code rejection, existing-product restock, inventory sync."""
+"""CR-1 API tests: purchase-creates-product, auto code, profit pricing, duplicate
+code rejection, existing-product restock, inventory sync. (CR-2: profit-amount pricing.)"""
 
 from tests.conftest import auth_headers, register
 
@@ -9,8 +9,8 @@ def _owner(client):
 
 
 def _purchase(client, h, **item):
-    base = {"gst_percentage": 5, "purchase_price": 100, "margin_type": "percentage",
-            "margin_value": 0, "quantity": 10, "unit": "NOS"}
+    base = {"gst_percentage": 5, "purchase_price": 100, "markup_amount": 0,
+            "quantity": 10, "unit": "NOS"}
     return client.post("/api/purchases", headers=h, json={
         "supplier_name": "S", "purchase_date": "2026-06-10", "items": [{**base, **item}],
     })
@@ -24,18 +24,18 @@ def test_auto_product_code_sequence(client):
     assert "PD-00001" in codes and "PD-00002" in codes
 
 
-def test_percentage_margin_via_purchase(client):
+def test_zero_profit_selling_equals_purchase(client):
     h = _owner(client)
-    _purchase(client, h, product_name="Pct", purchase_price=100, margin_type="percentage", margin_value=25)
-    p = next(p for p in client.get("/api/products", headers=h).json()["items"] if p["name"] == "Pct")
-    assert p["selling_price"] == 125.0
+    _purchase(client, h, product_name="Zero", purchase_price=100, markup_amount=0)
+    p = next(p for p in client.get("/api/products", headers=h).json()["items"] if p["name"] == "Zero")
+    assert p["selling_price"] == 100.0
 
 
-def test_amount_margin_via_purchase(client):
+def test_markup_amount_via_purchase(client):
     h = _owner(client)
-    _purchase(client, h, product_name="Amt", purchase_price=100, margin_type="amount", margin_value=20)
+    _purchase(client, h, product_name="Amt", purchase_price=100, markup_amount=20)
     p = next(p for p in client.get("/api/products", headers=h).json()["items"] if p["name"] == "Amt")
-    assert p["selling_price"] == 120.0
+    assert p["selling_price"] == 120.0  # 100 + 20
 
 
 def test_duplicate_code_rejected(client):
@@ -49,20 +49,20 @@ def test_duplicate_code_rejected(client):
 def test_existing_product_restock_updates_stock_and_pricing(client):
     h = _owner(client)
     _purchase(client, h, product_code="EX-1", product_name="Existing", purchase_price=100,
-              margin_type="amount", margin_value=20, quantity=10)
+              markup_amount=20, quantity=10)
     p = next(p for p in client.get("/api/products", headers=h).json()["items"] if p["product_code"] == "EX-1")
     assert p["current_stock"] == 10.0 and p["selling_price"] == 120.0
 
-    # restock the same product with a new cost/margin
+    # restock the same product with a new cost/profit
     client.post("/api/purchases", headers=h, json={
         "supplier_name": "S", "purchase_date": "2026-06-11",
-        "items": [{"product_id": p["id"], "purchase_price": 110, "margin_type": "percentage",
-                   "margin_value": 50, "gst_percentage": 5, "quantity": 5, "unit": "NOS"}],
+        "items": [{"product_id": p["id"], "purchase_price": 110, "markup_amount": 55,
+                   "gst_percentage": 5, "quantity": 5, "unit": "NOS"}],
     })
     p2 = client.get(f"/api/products/{p['id']}", headers=h).json()
     assert p2["current_stock"] == 15.0           # 10 + 5
     assert p2["purchase_price"] == 110.0
-    assert p2["selling_price"] == 165.0          # 110 * 1.5
+    assert p2["selling_price"] == 165.0          # 110 + 55
 
 
 def test_new_product_requires_name(client):

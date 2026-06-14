@@ -16,7 +16,7 @@ from app.schemas.sale import (
     SalePreviewOut,
     SalePreviewRequest,
 )
-from app.services import billing_service
+from app.services import billing_service, invoice_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -55,7 +55,6 @@ def get_sale(sale_id: uuid.UUID, db: DbSession, tenant_id: TenantId, _u: Current
 def get_invoice(sale_id: uuid.UUID, db: DbSession, tenant_id: TenantId, _u: CurrentUser) -> InvoiceOut:
     sale = billing_service.get_sale(db, tenant_id, sale_id)
     tenant = db.get(Tenant, tenant_id)
-    return InvoiceOut(
-        business=InvoiceBusiness.model_validate(tenant),
-        sale=SaleOut.model_validate(sale),
-    )
+    sale_out = SaleOut.model_validate(sale)
+    sale_out.cashier_name = invoice_service.cashier_name(db, sale)
+    return InvoiceOut(business=InvoiceBusiness.model_validate(tenant), sale=sale_out)

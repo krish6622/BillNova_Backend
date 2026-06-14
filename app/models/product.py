@@ -34,9 +34,11 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(255), index=True)
     unit: Mapped[str] = mapped_column(String(20), default="NOS")
     purchase_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
-    # selling_price is stored but DERIVED from purchase_price + margin (never client-set).
-    margin_type: Mapped[str] = mapped_column(String(10), default="percentage")  # percentage | amount
-    margin_value: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    # selling_price is stored but DERIVED as purchase_price + markup_amount (never client-set).
+    # CR-3: "markup" (was profit_amount) is the single selling-price driver.
+    markup_amount: Mapped[float] = mapped_column(
+        Numeric(10, 2), nullable=False, server_default="0", default=0
+    )
     selling_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     gst_percentage: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
     hsn_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)

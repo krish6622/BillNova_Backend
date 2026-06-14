@@ -41,6 +41,13 @@ def top_selling(db: DbSession, tenant_id: TenantId, _user: CurrentUser, limit: i
     return [ProductOut.model_validate(p) for p in product_service.top_selling_products(db, tenant_id, limit=limit)]
 
 
+@router.get("/next-code")
+def next_code(db: DbSession, tenant_id: TenantId, _user: CurrentUser) -> dict:
+    """CR-3.7: predicted next auto product code (PD-#####) for the purchase form.
+    A display hint only — the authoritative code is assigned/validated on save."""
+    return {"product_code": product_service.next_product_code(db, tenant_id)}
+
+
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(product_id: uuid.UUID, db: DbSession, tenant_id: TenantId, _user: CurrentUser) -> ProductOut:
     return ProductOut.model_validate(product_service.get_product(db, tenant_id, product_id))

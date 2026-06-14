@@ -23,8 +23,8 @@ def test_full_business_flow(client):
         headers=headers,
         json={"supplier_name": "Mills Co", "purchase_date": "2026-06-10",
               "items": [{"product_code": "TS-001", "product_name": "Cotton Saree", "hsn_code": "5407",
-                         "gst_percentage": 5, "purchase_price": 60, "margin_type": "amount",
-                         "margin_value": 45, "quantity": 100, "unit": "NOS"}]},
+                         "gst_percentage": 5, "purchase_price": 60, "markup_amount": 45,
+                         "quantity": 100, "unit": "NOS"}]},
     )
     pid = client.get("/api/products", headers=headers).json()["items"][0]["id"]
     assert client.get(f"/api/products/{pid}", headers=headers).json()["current_stock"] == 100.0
@@ -33,7 +33,7 @@ def test_full_business_flow(client):
     sale = client.post(
         "/api/sales",
         headers=headers,
-        json={"items": [{"product_id": pid, "quantity": 2}],
+        json={"gst_mode": "inclusive", "items": [{"product_id": pid, "quantity": 2}],
               "payments": [{"mode": "Cash", "amount": 105}, {"mode": "UPI", "amount": 105}]},
     ).json()
     assert sale["invoice_number"] == f"BN-{date.today().year}-0001"

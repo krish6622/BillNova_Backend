@@ -3,7 +3,7 @@
 Products are NOT created directly — they are created via purchases (see
 purchase_service). This module exposes read/search/edit, auto product-code
 generation, and the internal create/update-from-purchase helpers. Selling price
-is always derived from the profit margin.
+is always derived as purchase_price + markup_amount (CR-3).
 """
 
 import re
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import DuplicateError, NotFoundError
 from app.models.product import Product
-from app.models.sale import Sale, SaleItem
+from app.models.sale import STATUS_VOID, Sale, SaleItem
 from app.repositories.product_repo import ProductRepository
 from app.schemas.product import ProductUpdate
 from app.services.pricing import compute_selling_price
@@ -55,7 +55,7 @@ def top_selling_products(db: Session, tenant_id: uuid.UUID, *, limit: int = 12) 
     ranked = (
         select(SaleItem.product_id, func.sum(SaleItem.quantity).label("qty"))
         .join(Sale, Sale.id == SaleItem.sale_id)
-        .where(SaleItem.tenant_id == tenant_id)
+        .where(SaleItem.tenant_id == tenant_id, Sale.status != STATUS_VOID)  # CR-5: skip voided
         .group_by(SaleItem.product_id)
         .subquery()
     )
@@ -76,10 +76,10 @@ def update_product(db, tenant_id, product_id: uuid.UUID, payload: ProductUpdate)
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(product, field, value)
-    # Recompute the derived selling price whenever margin changes.
-    if "margin_type" in data or "margin_value" in data:
+    # Recompute the derived selling price whenever the markup amount changes.
+    if "markup_amount" in data:
         product.selling_price = compute_selling_price(
-            product.purchase_price, product.margin_type, product.margin_value
+            product.purchase_price, product.markup_amount
         )
     db.commit()
     db.refresh(product)
@@ -117,8 +117,7 @@ def create_from_purchase(
     gst_percentage,
     unit: str,
     purchase_price,
-    margin_type: str,
-    margin_value,
+    markup_amount,
 ) -> Product:
     """Create a product as part of a purchase. Auto-generates the code if not
     given; rejects a duplicate code (within the tenant)."""
@@ -133,9 +132,8 @@ def create_from_purchase(
         hsn_code=hsn_code,
         gst_percentage=gst_percentage,
         purchase_price=purchase_price,
-        margin_type=margin_type,
-        margin_value=margin_value,
-        selling_price=compute_selling_price(purchase_price, margin_type, margin_value),
+        markup_amount=markup_amount,
+        selling_price=compute_selling_price(purchase_price, markup_amount),
         current_stock=0,
     )
     db.add(product)
@@ -144,16 +142,15 @@ def create_from_purchase(
 
 
 def apply_purchase_pricing(
-    product: Product, *, purchase_price, margin_type: str, margin_value, gst_percentage, hsn_code, unit
+    product: Product, *, purchase_price, markup_amount, gst_percentage, hsn_code, unit
 ) -> None:
     """When an existing product is restocked via a purchase, refresh its cost,
-    margin, derived selling price, and tax fields to the latest purchase."""
+    markup amount, derived selling price, and tax fields to the latest purchase."""
     product.purchase_price = purchase_price
-    product.margin_type = margin_type
-    product.margin_value = margin_value
+    product.markup_amount = markup_amount
     product.gst_percentage = gst_percentage
     if hsn_code is not None:
         product.hsn_code = hsn_code
     if unit:
         product.unit = unit
-    product.selling_price = compute_selling_price(purchase_price, margin_type, margin_value)
+    product.selling_price = compute_selling_price(purchase_price, markup_amount)

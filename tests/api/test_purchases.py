@@ -12,7 +12,7 @@ def test_create_purchase_inline_creates_product_and_stock(client):
     resp = client.post("/api/purchases", headers=headers, json={
         "supplier_name": "Mills Co", "purchase_date": "2026-06-10",
         "items": [{"product_name": "Cotton Saree", "hsn_code": "5407", "gst_percentage": 5,
-                   "purchase_price": 600, "margin_type": "amount", "margin_value": 399, "quantity": 10}],
+                   "purchase_price": 600, "markup_amount": 399, "quantity": 10}],
     })
     assert resp.status_code == 201
     body = resp.json()
@@ -31,8 +31,8 @@ def test_cancel_purchase_reverses_stock(client):
     # restock +10 via a second purchase, then cancel it
     purchase = client.post("/api/purchases", headers=headers, json={
         "supplier_name": "Mills Co", "purchase_date": "2026-06-10",
-        "items": [{"product_id": p["id"], "purchase_price": 600, "margin_type": "amount",
-                   "margin_value": 399, "gst_percentage": 5, "quantity": 10}],
+        "items": [{"product_id": p["id"], "purchase_price": 600, "markup_amount": 399,
+                   "gst_percentage": 5, "quantity": 10}],
     }).json()
     assert client.get(f"/api/products/{p['id']}", headers=headers).json()["current_stock"] == 60.0
 

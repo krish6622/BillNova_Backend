@@ -6,15 +6,16 @@ from tests.conftest import auth_headers, register, seed_product
 
 
 def _setup_with_sale(client):
-    # purchase_price 60 + amount margin 45 -> selling 105; stock 50 then sell 2 -> 48.
+    # purchase_price 60 + profit 45 -> selling 105; stock 50 then sell 2 -> 48.
     headers = auth_headers(register(client).json()["access_token"])
     seed_product(client, headers, code="TS-001", name="Cotton Saree",
-                 purchase_price=60, margin_type="amount", margin_value=45, gst=5, hsn="5407", qty=50)
+                 purchase_price=60, markup_amount=45, gst=5, hsn="5407", qty=50)
     pid = client.get("/api/products", headers=headers).json()["items"][0]["id"]
     client.post(
         "/api/sales",
         headers=headers,
-        json={"items": [{"product_id": pid, "quantity": 2}], "payments": [{"mode": "Cash", "amount": 210}]},
+        json={"gst_mode": "inclusive", "items": [{"product_id": pid, "quantity": 2}],
+              "payments": [{"mode": "Cash", "amount": 210}]},
     )
     return headers
 
